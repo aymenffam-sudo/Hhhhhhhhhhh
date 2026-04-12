@@ -8,8 +8,8 @@ from telegram.ext import (
 )
 
 # --- الإعدادات الأساسية ---
-BOT_TOKEN = "8643249047:AAG3nBuhQnZAkDNJvdUdI-ahiN5tYj_mgzs"
-OWNERS = [7367073412] 
+BOT_TOKEN = "8593915208:AAHTLNiwLsN8uonzRRoP4CJsWgjYvC8IEPY"
+OWNERS = [6676819684] 
 FOOTER = "\n\nBen 10 🍀"
 
 # ملف حفظ المستخدمين للإذاعة
