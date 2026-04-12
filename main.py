@@ -5,41 +5,76 @@ from telegram.ext import (
     filters, ContextTypes, ConversationHandler
 )
 
+# --- الإعدادات الأساسية ---
 BOT_TOKEN = "8593915208:AAHTLNiwLsN8uonzRRoP4CJsWgjYvC8IEPY"
-OWNER_ID  = 6676819684  # het lid tlgrm dialk hna
+# وضعنا المعرفات في قائمة للسماح بأكثر من أونر
+OWNERS = [6676819684] 
 
 logging.basicConfig(level=logging.INFO)
 
 keys_store: dict[str, str] = {}
-
 SET_PHRASE, SET_KEY, WAITING_GUESS = range(3)
 
+# ── وظائف الأونر (ADMINS ONLY) ──────────────────────────────
 
-# ── OWNER ──────────────────────────────────────────────────
+async def cmd_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """رسالة خاصة بالأونرز فقط"""
+    if update.effective_user.id not in OWNERS:
+        return # تجاهل إذا لم يكن أونر
+
+    admin_text = (
+        "🛠 **Admin Control Panel | لوحة التحكم**\n\n"
+        "مرحباً بك في قائمة المطورين. إليك الأوامر المتاحة:\n"
+        "• `/setkey` : إضافة كلمة سر وجائزة جديدة.\n"
+        "• `/listkeys` : عرض جميع الكلمات المتاحة.\n"
+        "• `/removekey` : حذف كلمة سر معينة.\n"
+        "• `/addowner ID` : إضافة مطور جديد للبوت.\n"
+        "• `/cancel` : إلغاء العملية الحالية."
+    )
+    await update.message.reply_text(admin_text, parse_mode="Markdown")
+
+async def cmd_addowner(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """إضافة أونر جديد للبوت"""
+    if update.effective_user.id not in OWNERS:
+        await update.message.reply_text("⛔️ Access denied.")
+        return
+
+    if not ctx.args:
+        await update.message.reply_text("Usage: `/addowner 12345678`", parse_mode="Markdown")
+        return
+
+    try:
+        new_id = int(ctx.args[0])
+        if new_id not in OWNERS:
+            OWNERS.append(new_id)
+            await update.message.reply_text(f"✅ User `{new_id}` added to Owners list.", parse_mode="Markdown")
+        else:
+            await update.message.reply_text("⚠️ This ID is already an owner.")
+    except ValueError:
+        await update.message.reply_text("❌ Please provide a valid numeric ID.")
 
 async def cmd_setkey(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
+    if update.effective_user.id not in OWNERS:
         await update.message.reply_text("⛔️ Access denied.")
         return ConversationHandler.END
 
     await update.message.reply_text(
-        "🔐 Add New Key — Step 1/2\n\n"
-        "Send the *winning phrase* users must type to claim the key.",
+        "🔐 **Step 1/2**\n\n"
+        "Send the *winning phrase* users must type.\n"
+        "أرسل الآن *كلمة السر* التي يجب على المستخدم كتابتها.",
         parse_mode="Markdown"
     )
     return SET_PHRASE
 
-
 async def owner_receive_phrase(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data["pending_phrase"] = update.message.text.strip()
     await update.message.reply_text(
-        "🔐 Add New Key — Step 2/2\n\n"
-        f"✅ Phrase saved: `{ctx.user_data['pending_phrase']}`\n\n"
-        "Now send the *prize key* the winner will receive.",
+        "🔐 **Step 2/2**\n\n"
+        "✅ Phrase saved! Now send the *prize/key*.\n"
+        "تم حفظ الكلمة! أرسل الآن *الجائزة أو المفتاح*.",
         parse_mode="Markdown"
     )
     return SET_KEY
-
 
 async def owner_receive_key(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     phrase = ctx.user_data.pop("pending_phrase")
@@ -47,66 +82,29 @@ async def owner_receive_key(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     keys_store[phrase.lower()] = key
 
     await update.message.reply_text(
-        "✅ Key saved successfully!\n\n"
-        f"🗝 Phrase : `{phrase}`\n"
-        f"🎁 Key    : `{key}`\n\n"
-        "_The key will be deleted automatically once someone claims it._",
+        "✅ **Done | تم الحفظ**\n\n"
+        f"🗝 Phrase: `{phrase}`\n"
+        f"🎁 Key: `{key}`",
         parse_mode="Markdown"
     )
     return ConversationHandler.END
 
-
-async def cmd_listkeys(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        await update.message.reply_text("⛔️ Access denied.")
-        return
-
-    if not keys_store:
-        await update.message.reply_text("📭 No keys available right now.")
-        return
-
-    lines = ["📋 Active Keys:\n"]
-    for i, (phrase, key) in enumerate(keys_store.items(), 1):
-        lines.append(f"{i}. 🗝 `{phrase}` → `{key}`")
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
-
-
-async def cmd_removekey(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        await update.message.reply_text("⛔️ Access denied.")
-        return
-
-    if not ctx.args:
-        await update.message.reply_text("Usage: /removekey <phrase>")
-        return
-
-    phrase = " ".join(ctx.args).lower()
-    if phrase in keys_store:
-        del keys_store[phrase]
-        await update.message.reply_text(f"🗑 Key for `{phrase}` removed.", parse_mode="Markdown")
-    else:
-        await update.message.reply_text("❌ Phrase not found.")
-
-
-async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data.clear()
-    await update.message.reply_text("❌ Cancelled.")
-    return ConversationHandler.END
-
-
-# ── USER ───────────────────────────────────────────────────
+# ── وظائف المستخدمين (USER SIDE) ─────────────────────────────
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    await update.message.reply_text(
-        f"👋 Welcome, *{user.first_name}*!\n\n"
-        f"🎯 Do you know the secret phrase?\n\n"
-        f"Type it below and you could win a prize! 🎁\n\n"
-        f"_Good luck!_ 🍀",
-        parse_mode="Markdown"
+    welcome_text = (
+        f"👋 **Welcome | أهلاً بك {user.first_name}**\n\n"
+        "🎯 **English:**\n"
+        "Do you have a secret phrase? Type it below to claim your prize! "
+        "Each phrase can be used only once.\n\n"
+        "🎯 **عربي:**\n"
+        "هل تمتلك كلمة السر؟ أرسلها هنا للحصول على جائزتك فوراً! "
+        "كل كلمة سر تعمل لمرة واحدة فقط لشخص واحد.\n\n"
+        "🍀 *Good luck! | حظاً موفقاً!*"
     )
+    await update.message.reply_text(welcome_text, parse_mode="Markdown")
     return WAITING_GUESS
-
 
 async def user_guess(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     guess = update.message.text.strip().lower()
@@ -114,44 +112,32 @@ async def user_guess(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if guess in keys_store:
         prize_key = keys_store.pop(guess)
-
         await update.message.reply_text(
-            f"🏆 Congratulations, *{user.first_name}*!\n\n"
-            f"🎉 You found the correct phrase!\n\n"
-            f"🎁 Your Prize Key:\n`{prize_key}`\n\n"
-            f"_Enjoy your reward! You deserve it_ 🌟",
+            f"🏆 **Winner! | مبروك يا بطل!**\n\n"
+            f"🎁 Your Prize: `{prize_key}`\n\n"
+            "_Enjoy your reward!_",
             parse_mode="Markdown"
         )
-
-        username = f"@{user.username}" if user.username else "No username"
-        try:
-            await ctx.bot.send_message(
-                chat_id=OWNER_ID,
-                text=(
-                    "🔔 Key Claimed!\n\n"
-                    f"👤 Name     : {user.full_name}\n"
-                    f"🆔 User ID  : `{user.id}`\n"
-                    f"📎 Username : {username}\n\n"
-                    f"🗝 Phrase   : `{guess}`\n"
-                    f"🎁 Key Sent : `{prize_key}`\n\n"
-                    "✅ The key has been automatically deleted from the bot."
-                ),
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            logging.warning(f"Could not notify owner: {e}")
-
+        
+        # إشعار الأونرز
+        for admin_id in OWNERS:
+            try:
+                await ctx.bot.send_message(
+                    chat_id=admin_id,
+                    text=f"🔔 **Key Claimed!**\n👤 User: {user.full_name}\n🗝 Phrase: `{guess}`"
+                )
+            except: continue
     else:
-        await update.message.reply_text(
-            "❌ Wrong phrase!\n\n"
-            "That's not the right answer. 😔\n\n"
-            "Think carefully and try again! 💪🍀"
-        )
-
+        await update.message.reply_text("❌ **Wrong! | كلمة خاطئة**\nTry again! | حاول مجدداً!")
+    
     return WAITING_GUESS
 
+# ── تشغيل البوت ──────────────────────────────────────────────
 
-# ── MAIN ───────────────────────────────────────────────────
+async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data.clear()
+    await update.message.reply_text("❌ Cancelled / تم الإلغاء")
+    return ConversationHandler.END
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -175,12 +161,12 @@ def main():
 
     app.add_handler(set_key_conv)
     app.add_handler(user_conv)
-    app.add_handler(CommandHandler("listkeys",  cmd_listkeys))
-    app.add_handler(CommandHandler("removekey", cmd_removekey))
-
+    app.add_handler(CommandHandler("admin", cmd_admin))
+    app.add_handler(CommandHandler("addowner", cmd_addowner))
+    app.add_handler(CommandHandler("listkeys", lambda u, c: cmd_listkeys(u, c) if u.effective_user.id in OWNERS else None))
+    
     print("🤖 Bot is running...")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
