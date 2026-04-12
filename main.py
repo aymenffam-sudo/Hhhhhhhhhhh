@@ -6,8 +6,8 @@ from telegram.ext import (
 )
 
 # --- الإعدادات الأساسية ---
-BOT_TOKEN = ""
-OWNERS = [] 
+BOT_TOKEN = "8593915208:AAHTLNiwLsN8uonzRRoP4CJsWgjYvC8IEPY"
+OWNERS = [6676819684] 
 
 # التوقيع الثابت
 FOOTER = "\n\nBen 10 🍀"
