@@ -1,32 +1,29 @@
 import logging
 import json
 import os
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
-    filters, ContextTypes, ConversationHandler
+    filters, ContextTypes, ConversationHandler, CallbackQueryHandler
 )
 
-# --- الإعدادات الأساسية ---
+# --- الإعدادات الصحيحة (بياناتك الخاصة) ---
 BOT_TOKEN = "8593915208:AAHTLNiwLsN8uonzRRoP4CJsWgjYvC8IEPY"
 OWNERS = [6676819684] 
-FOOTER = "\n\nBen 10 🍀"
-
-# ملف حفظ المستخدمين للإذاعة
+FOOTER = "\n\n**Ben 10 🍀**" 
 USERS_FILE = "users_db.json"
 
 logging.basicConfig(level=logging.INFO)
-
 keys_store: dict[str, str] = {}
-SET_PHRASE, SET_KEY, WAITING_GUESS, BROADCAST_STATE = range(4)
 
-# ── وظائف إدارة المستخدمين ──────────────────────────────
+# حالات المحادثة
+SET_PHRASE, SET_KEY, BROADCAST_STATE = range(3)
 
+# ── وظائف البيانات ──
 def load_users():
     if os.path.exists(USERS_FILE):
         try:
-            with open(USERS_FILE, "r") as f:
-                return set(json.load(f))
+            with open(USERS_FILE, "r") as f: return set(json.load(f))
         except: return set()
     return set()
 
@@ -34,170 +31,148 @@ def save_user(user_id):
     users = load_users()
     if user_id not in users:
         users.add(user_id)
-        with open(USERS_FILE, "w") as f:
-            json.dump(list(users), f)
+        with open(USERS_FILE, "w") as f: json.dump(list(users), f)
 
-# ── وظائف الأونر (ADMINS ONLY) ──────────────────────────────
-
+# ── لوحة التحكم ──
 async def cmd_admin(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in OWNERS: return
+    
+    keyboard = [
+        [InlineKeyboardButton("🔐 إضافة مفتاح", callback_data='add_key'),
+         InlineKeyboardButton("📋 عرض المفاتيح", callback_data='list_keys')],
+        [InlineKeyboardButton("📊 الإحصائيات", callback_data='show_stats'),
+         InlineKeyboardButton("📢 إذاعة (Broadcast)", callback_data='start_bc')],
+        [InlineKeyboardButton("🗑 مسح الكل", callback_data='clear_all')],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
     admin_text = (
-        "🛠 **لوحة تحكم المطورين**\n\n"
-        "• `/setkey` : إضافة مفتاح جديد\n"
-        "• `/listkeys` : عرض المفاتيح النشطة\n"
-        "• `/removekey` : حذف مفتاح محدد\n"
-        "• `/clear_keys` : مسح كل المفاتيح\n"
-        "• `/stats` : إحصائيات البوت\n"
-        "• `/broadcast` : إذاعة رسالة للجميع\n"
-        "• `/addowner ID` : إضافة مطور جديد"
+        "🛠 **— لوحة تحكم المطورين —**\n\n"
+        "مرحباً بك! استخدم الأزرار أدناه للتحكم السريع أو الأوامر المباشرة:\n\n"
+        "🔹 **إضافة مطور:** `/addowner ID`\n"
+        "🔹 **حذف مطور:** `/removeowner ID`\n"
+        "🔹 **إلغاء العملية:** `/cancel`"
     )
-    await update.message.reply_text(admin_text + FOOTER, parse_mode="Markdown")
+    await update.message.reply_text(admin_text + FOOTER, reply_markup=reply_markup, parse_mode="Markdown")
 
-async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in OWNERS: return
-    users_count = len(load_users())
-    keys_count = len(keys_store)
-    stats_text = (
-        "📊 **إحصائيات البوت:**\n\n"
-        f"👤 عدد المستخدمين الكلي: `{users_count}`\n"
-        f"🗝 عدد المفاتيح المتاحة حالياً: `{keys_count}`"
-    )
-    await update.message.reply_text(stats_text + FOOTER, parse_mode="Markdown")
-
-async def cmd_clear_keys(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in OWNERS: return
-    keys_store.clear()
-    await update.message.reply_text("🗑 تم مسح جميع المفاتيح بنجاح." + FOOTER)
-
-# ── نظام الإذاعة (Broadcast) ──────────────────────────────
-
-async def start_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in OWNERS: return
-    await update.message.reply_text("📢 أرسل الرسالة التي تريد إذاعتها للجميع (نص فقط):" + FOOTER)
-    return BROADCAST_STATE
-
-async def do_broadcast(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    broadcast_msg = update.message.text
-    users = load_users()
-    count = 0
-    for user_id in users:
-        try:
-            await ctx.bot.send_message(chat_id=user_id, text=broadcast_msg + FOOTER)
-            count += 1
-        except: continue
-    await update.message.reply_text(f"✅ تم إرسال الإذاعة إلى {count} مستخدم." + FOOTER)
-    return ConversationHandler.END
-
-# ── استكمال الأوامر الإدارية ──────────────────────────────
-
+# ── إدارة الأونرات ──
 async def cmd_addowner(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in OWNERS: return
-    if not ctx.args: return
+    if not ctx.args:
+        await update.message.reply_text("⚠️ **تنبيه:** يرجى كتابة الأيدي، مثال:\n`/addowner 12345`" + FOOTER, parse_mode="Markdown")
+        return
     try:
         new_id = int(ctx.args[0])
         if new_id not in OWNERS:
             OWNERS.append(new_id)
-            await update.message.reply_text(f"✅ تم إضافة `{new_id}` كأونر." + FOOTER)
-    except: pass
+            await update.message.reply_text(f"✅ **تمت الإضافة بنجاح!**\nالعضو `{new_id}` أصبح ضمن المطورين." + FOOTER, parse_mode="Markdown")
+        else:
+            await update.message.reply_text("⚠️ **خطأ:** هذا الحساب مسجل كأونر بالفعل." + FOOTER, parse_mode="Markdown")
+    except:
+        await update.message.reply_text("❌ **خطأ:** يرجى إدخال أرقام فقط." + FOOTER, parse_mode="Markdown")
 
-async def cmd_setkey(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in OWNERS: return ConversationHandler.END
-    await update.message.reply_text("🔐 خطوة 1/2: أرسل كلمة السر:" + FOOTER)
-    return SET_PHRASE
+async def cmd_removeowner(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in OWNERS: return
+    if not ctx.args:
+        await update.message.reply_text("⚠️ **تنبيه:** يرجى كتابة الأيدي، مثال:\n`/removeowner 12345`" + FOOTER, parse_mode="Markdown")
+        return
+    target_id = int(ctx.args[0])
+    if target_id == 6676819684: # حماية آيديك الأساسي
+        await update.message.reply_text("❌ **فشل:** لا يمكن حذف الأونر الأساسي!" + FOOTER, parse_mode="Markdown")
+        return
+    if target_id in OWNERS:
+        OWNERS.remove(target_id)
+        await update.message.reply_text(f"🗑 **تم الحذف:** الحساب `{target_id}` لم يعد مطوراً." + FOOTER, parse_mode="Markdown")
+    else:
+        await update.message.reply_text("❌ **خطأ:** هذا الحساب غير موجود في قائمة الإدارة." + FOOTER, parse_mode="Markdown")
 
-async def owner_receive_phrase(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    ctx.user_data["pending_phrase"] = update.message.text.strip().lower()
-    await update.message.reply_text("✅ خطوة 2/2: أرسل الجائزة الآن:" + FOOTER)
+# ── معالج ضغط الأزرار ──
+async def button_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == 'list_keys':
+        msg = "**📋 قائمة المفاتيح النشطة:**\n\n" + "\n".join([f"• `{p}` ⬅️ `{k}`" for p, k in keys_store.items()]) if keys_store else "📭 **لا توجد مفاتيح نشطة حالياً.**"
+        await query.message.reply_text(msg + FOOTER, parse_mode="Markdown")
+    elif query.data == 'show_stats':
+        await query.message.reply_text(f"📊 **إحصائيات البوت الحالية:**\n\n👤 **المستخدمين:** `{len(load_users())}`\n🗝 **المفاتيح:** `{len(keys_store)}`" + FOOTER, parse_mode="Markdown")
+    elif query.data == 'clear_all':
+        keys_store.clear()
+        await query.message.reply_text("🗑 **تمت التصفية:** تم مسح جميع المفاتيح." + FOOTER, parse_mode="Markdown")
+    elif query.data == 'add_key':
+        await query.message.reply_text("🔐 **خطوة 1:** أرسل كلمة السر (Winning Phrase):" + FOOTER, parse_mode="Markdown")
+        return SET_PHRASE
+    elif query.data == 'start_bc':
+        await query.message.reply_text("📢 **الإذاعة:** أرسل النص الذي تريد نشره للجميع الآن:" + FOOTER, parse_mode="Markdown")
+        return BROADCAST_STATE
+
+# ── محادثات الإضافة والإذاعة ──
+async def get_phrase(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data['p'] = update.message.text.strip().lower()
+    await update.message.reply_text("✅ **تم حفظ الكلمة!**\nالآن أرسل الجائزة (Key):" + FOOTER, parse_mode="Markdown")
     return SET_KEY
 
-async def owner_receive_key(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    phrase = ctx.user_data.pop("pending_phrase")
-    key = update.message.text.strip()
-    keys_store[phrase] = key
-    await update.message.reply_text(f"✅ تم الحفظ بنجاح!\nالكلمة: `{phrase}`" + FOOTER, parse_mode="Markdown")
+async def get_key(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    p, k = ctx.user_data.get('p'), update.message.text.strip()
+    keys_store[p] = k
+    await update.message.reply_text(f"✨ **تمت العملية بنجاح!**\n\n🔑 الكلمة: `{p}`\n🎁 الجائزة: `{k}`" + FOOTER, parse_mode="Markdown")
     return ConversationHandler.END
 
-# ── وظائف المستخدمين (User Side) ───────────────────────────────
+async def send_bc(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    sent = 0
+    for u in load_users():
+        try:
+            await ctx.bot.send_message(u, f"📢 **رسالة إدارية:**\n\n{update.message.text}" + FOOTER, parse_mode="Markdown")
+            sent += 1
+        except: continue
+    await update.message.reply_text(f"✅ **اكتملت الإذاعة!**\nوصلت الرسالة لـ `{sent}` مستخدم." + FOOTER, parse_mode="Markdown")
+    return ConversationHandler.END
 
+# ── قسم المستخدم ──
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    save_user(update.effective_user.id) # حفظ اليوزر للإذاعة
-    user = update.effective_user
-    welcome_text = (
-        f"👋 **أهلاً بك {user.first_name}**\n\n"
-        "🎯 **عربي:**\n"
-        "هل تمتلك كلمة السر؟ أرسلها هنا للحصول على جائزتك فوراً!\n\n"
-        "🎯 **English:**\n"
-        "Do you have a secret phrase? Type it below to claim your prize!"
+    save_user(update.effective_user.id)
+    welcome = (
+        f"👋 **مرحباً بك {update.effective_user.first_name}!**\n\n"
+        "أهلاً بك في بوت الجوائز. إذا كان لديك **كلمة سر** صحيحة، أرسلها الآن للحصول على جائزتك فوراً! 🎁"
     )
-    await update.message.reply_text(welcome_text + FOOTER, parse_mode="Markdown")
-    return WAITING_GUESS
+    await update.message.reply_text(welcome + FOOTER, parse_mode="Markdown")
 
-async def user_guess(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    guess = update.message.text.strip().lower()
-    if guess in keys_store:
-        prize = keys_store.pop(guess)
-        await update.message.reply_text(f"🏆 مبروك يا بطل! جائزتك هي:\n`{prize}`" + FOOTER, parse_mode="Markdown")
-        # إشعار الأونرز
-        for admin_id in OWNERS:
-            try: await ctx.bot.send_message(admin_id, f"🔔 تم حصد مفتاح!\nالكلمة: `{guess}`\nالمستخدم: {update.effective_user.full_name}")
-            except: pass
+async def handle_msg(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    msg = update.message.text.strip().lower()
+    if msg in keys_store:
+        prize = keys_store.pop(msg)
+        await update.message.reply_text(f"🏆 **مبروك يا بطل!**\nلقد وجدت الجائزة:\n\n`{prize}`" + FOOTER, parse_mode="Markdown")
     else:
-        await update.message.reply_text("❌ كلمة خاطئة، حاول مجدداً!" + FOOTER)
-    return WAITING_GUESS
+        await update.message.reply_text("❌ **للأسف الكلمة خاطئة!**\nحاول مجدداً." + FOOTER, parse_mode="Markdown")
 
-async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("❌ تم إلغاء العملية." + FOOTER)
-    return ConversationHandler.END
-
-# ── تشغيل البوت ───────────────────────────────
-
+# ── تشغيل البوت ──
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # محادثة إضافة مفتاح
-    app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler("setkey", cmd_setkey)],
-        states={
-            SET_PHRASE: [MessageHandler(filters.TEXT & ~filters.COMMAND, owner_receive_phrase)],
-            SET_KEY:    [MessageHandler(filters.TEXT & ~filters.COMMAND, owner_receive_key)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    ))
-
-    # محادثة الإذاعة
-    app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler("broadcast", start_broadcast)],
-        states={
-            BROADCAST_STATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, do_broadcast)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    ))
-
-    # محادثة المستخدم (التخمين)
-    app.add_handler(ConversationHandler(
-        entry_points=[CommandHandler("start", cmd_start)],
-        states={
-            WAITING_GUESS: [MessageHandler(filters.TEXT & ~filters.COMMAND, user_guess)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    ))
-
     app.add_handler(CommandHandler("admin", cmd_admin))
-    app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("addowner", cmd_addowner))
-    app.add_handler(CommandHandler("clear_keys", cmd_clear_keys))
-    
-    # أمر عرض المفاتيح
-    async def list_keys(update, context):
-        if update.effective_user.id in OWNERS:
-            if not keys_store:
-                await update.message.reply_text("📭 لا توجد مفاتيح نشطة حالياً." + FOOTER)
-                return
-            msg = "📋 قائمة المفاتيح النشطة:\n" + "\n".join([f"• `{p}` -> `{k}`" for p, k in keys_store.items()])
-            await update.message.reply_text(msg + FOOTER, parse_mode="Markdown")
-    app.add_handler(CommandHandler("listkeys", list_keys))
+    app.add_handler(CommandHandler("removeowner", cmd_removeowner))
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CallbackQueryHandler(button_handler))
 
-    print("🤖 Bot is running... Signature: Ben 10 🍀")
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(button_handler, pattern='^add_key$')],
+        states={
+            SET_PHRASE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_phrase)],
+            SET_KEY: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_key)],
+        },
+        fallbacks=[CommandHandler("cancel", lambda u,c: ConversationHandler.END)]
+    ))
+
+    app.add_handler(ConversationHandler(
+        entry_points=[CallbackQueryHandler(button_handler, pattern='^start_bc$')],
+        states={BROADCAST_STATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, send_bc)]},
+        fallbacks=[CommandHandler("cancel", lambda u,c: ConversationHandler.END)]
+    ))
+
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_msg))
+
+    print("🤖 Bot Running with YOUR correct info! Signature: Ben 10 🍀")
     app.run_polling()
 
 if __name__ == "__main__":
