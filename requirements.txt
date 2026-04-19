@@ -1,3 +1,2 @@
-pyTelegramBotAPI
-instagram_private_api
+python-telegram-bot
 python-dotenv
